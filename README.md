@@ -1,2 +1,2 @@
 # Controllers-For-ROS
-A collection of controller for ROS
+A collection of controllers for ROS
