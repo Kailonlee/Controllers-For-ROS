@@ -1,5 +1,5 @@
 ## MPC Controller for ROS
-Temporarily only LTV-MPC, NMPC is comming soon
+Temporarily only LTV-MPC, NMPC is coming soon
 
 ### Dependences
 - Eigen
