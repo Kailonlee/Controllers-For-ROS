@@ -61,15 +61,15 @@ find_package(OsqpEigen REQUIRED)
  add_message_files(
    FILES
    TrajectoryPoint.msg
-   # Message2.msg
+   Trajectory.msg
  )
 
 ## Generate services in the 'srv' folder
-# add_service_files(
-#   FILES
-#   Service1.srv
+ add_service_files(
+   FILES
+   MPCPlan.srv
 #   Service2.srv
-# )
+ )
 
 ## Generate actions in the 'action' folder
 # add_action_files(
@@ -117,7 +117,7 @@ find_package(OsqpEigen REQUIRED)
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
    INCLUDE_DIRS include
-#  LIBRARIES mpc_controller
+  LIBRARIES mpc_controller
    CATKIN_DEPENDS 
       roscpp 
       std_msgs
@@ -128,7 +128,7 @@ catkin_package(
       tf2
       tf2_ros
       message_runtime
-#  DEPENDS system_lib
+  DEPENDS system_lib
 )
 
 ###########
@@ -138,7 +138,7 @@ catkin_package(
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 include_directories(
-  include/mpc_controller
+  include
   ${catkin_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIR}
 )
@@ -161,7 +161,7 @@ add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EX
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
- add_executable(${PROJECT_NAME}_node src/test.cpp src/MPCController.cpp)
+ add_executable(${PROJECT_NAME}_node src/MPCController.cpp src/MPCControllerROSSimple.cpp src/MPCControllerROSSimple_node.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
