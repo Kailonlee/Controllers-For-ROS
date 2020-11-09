@@ -1,3 +1,9 @@
+/*
+ * @Date: 2020-07-19 16:04:43
+ * @Description: test MPC_Controller
+ * @LastEditors: Kailon
+ * @LastEditTime: 2020-10-05 15:37:30
+ */ 
 #include <ros/ros.h>
 #include "MPCController.h"
 
@@ -18,7 +24,7 @@ const uint32_t NC = 2;
 auto current_slip_ptr_ = std::make_shared<mpc_controller::slip_param>();
 bool ReadRefTrajectroy(std::vector<mpc_controller::TrajectoryPoint>* ref_path){
     std::ifstream inputfile;
-    std::string txt_path("/home/.../ref_traj_ROS.txt");
+    std::string txt_path("/home/kailon/桌面/ref_traj_ROS.txt");
     inputfile.open(txt_path, std::ios::in);
     if (!inputfile.is_open())
     {
@@ -27,6 +33,7 @@ bool ReadRefTrajectroy(std::vector<mpc_controller::TrajectoryPoint>* ref_path){
     }
     
     std::string unused;
+    // std::getline(inputfile, unused);//清除第一行
     uint32_t line_num = 1;
     uint32_t max_line_num = 1025;
     double x, y, th, w_r, w_l;
@@ -204,9 +211,8 @@ int main(int argc, char** argv){
         real_pose_stamped.pose.orientation = tf::createQuaternionMsgFromYaw(current_pose.theta);
         real_path.poses.push_back(real_pose_stamped);
 
-        uint32_t target_point_index;
         mpc_controller::pose2D target_pose;
-        mpc_test.GetTargetPoint(target_point_index, &target_pose);
+        target_pose = mpc_test.GetTargetPose();
 
         ref_path.header.stamp=ros::Time::now();
         ref_path.header.frame_id="/base_link";
