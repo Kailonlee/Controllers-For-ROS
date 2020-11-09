@@ -1,4 +1,4 @@
-#include "MPCController.h"
+#include "mpc_controller/MPCController.h"
 namespace mpc_controller{
     MPC_Controller::MPC_Controller(const uint32_t state_dim, const uint32_t control_dim,
                                     const uint32_t N_p, const uint32_t N_c){
@@ -67,12 +67,17 @@ namespace mpc_controller{
     }
 
     void MPC_Controller::UpdateSystemMatrix(const pose2D &current_pose,
+                                            const geometry_msgs::Vector3 &body_vel,
                                             const std::vector<mpc_controller::TrajectoryPoint> &ref_traj){
         ROS_INFO("Updating MPC System Matrix");
+        current_pose2D_.x = current_pose.x;
+        current_pose2D_.y = current_pose.y;
+        current_pose2D_.theta = current_pose.theta;
         Eigen::VectorXd current_pose_vec, target_pose_vec;
         UpdateCurrentPoseVec(current_pose, current_pose_vec);
-        UpdateTargetVec(current_pose, ref_traj, target_pose_vec, target_u_vec_);
-
+        std::cout << "current pose: \n" <<  current_pose_vec << std::endl;
+        UpdateTargetVec(current_pose, ref_traj, body_vel, target_pose_vec, target_u_vec_);
+        std::cout << "target pose: \n" <<  target_pose_vec << std::endl;
         Eigen::MatrixXd Matrix_A, Matrix_B, Matrix_C;
         Matrix_A.resize(state_dim_ + control_dim_, state_dim_ + control_dim_);
         Matrix_A.block(0,0,SysDynPtr_->Matrix_a.rows(),SysDynPtr_->Matrix_a.cols()) = SysDynPtr_->Matrix_a;
@@ -94,6 +99,10 @@ namespace mpc_controller{
         Matrix_M_.resize(N_c_ * control_dim_, N_c_ * control_dim_);
         Matrix_M_ = KroneckerProduct(Matrix_K_, Eigen::MatrixXd::Identity(control_dim_, control_dim_));
 
+        std::cout << "Matrix A: \n" << Matrix_A << std::endl;
+        std::cout << "Matrix B: \n" << Matrix_B << std::endl;
+        std::cout << "Matrix C: \n" << Matrix_C << std::endl;
+
         CalculatePSI(Matrix_A, Matrix_C, Matrix_PSI_);
         CalculateTHETA(Matrix_A, Matrix_B, Matrix_C, Matrix_THETA_);
 
@@ -114,9 +123,9 @@ namespace mpc_controller{
         Vector_err.resize(state_dim_ + control_dim_, 1);
         Vector_err.block(0, 0, state_dim_, 1) = state_err;
         Vector_err.block(state_dim_, 0, control_dim_, 1) = control_err_;
-        std::cout << "[calculating]control_err_: \n" << control_err_ << std::endl;
+        std::cout << "vector_err_: \n" << Vector_err << std::endl;
         Control_Err_ = KroneckerProduct(NcOnes_, control_err_);
-        std::cout << "[calculating]Control_Err_: \n" << Control_Err_ << std::endl;
+        // std::cout << "[calculating]Control_Err_: \n" << Control_Err_ << std::endl;
         Matrix_E = Matrix_PSI_ * Vector_err;
 
     }
@@ -134,32 +143,42 @@ namespace mpc_controller{
 
     void MPC_Controller::UpdateTargetVec(const pose2D &current_pose, 
                                         const std::vector<mpc_controller::TrajectoryPoint> &ref_traj,
+                                        const geometry_msgs::Vector3 &body_vel,
                                         Eigen::VectorXd &target_pose_vec,
                                         Eigen::VectorXd &target_u_vec){
         ROS_INFO("Updating Target Pose And Control Vector");
         target_pose_vec.resize(state_dim_);
         target_u_vec.resize(control_dim_);
-        ref_point_index_ = FindNearestPoint(current_pose, ref_traj);
-        double x_ref = ref_traj[ref_point_index_].pose.position.x;
-        double y_ref = ref_traj[ref_point_index_].pose.position.y;
-        double th_ref = tf2::getYaw(ref_traj[ref_point_index_].pose.orientation);
-        double w_l_ref = ref_traj[ref_point_index_].velocity.left_vel.data;
-        double w_r_ref = ref_traj[ref_point_index_].velocity.right_vel.data;
+        uint32_t min_dist_point_index, ref_point_index;
+        min_dist_point_index = FindNearestPoint(current_pose, ref_traj);
+        // ref_point_index = min_dist_point_index + ceil(body_vel.x * 0.1 / 0.03); // preview
+        ref_point_index = min_dist_point_index;
+        if (ref_point_index >= ref_traj.size())
+        {
+            ref_point_index = ref_traj.size()-1;
+        }
+        double x_ref = ref_traj[min_dist_point_index].pose.position.x;
+        double y_ref = ref_traj[min_dist_point_index].pose.position.y;
+        double th_ref = tf2::getYaw(ref_traj[ref_point_index].pose.orientation);
+        double w_l_ref = ref_traj[min_dist_point_index].velocity.left_vel.data;
+        double w_r_ref = ref_traj[min_dist_point_index].velocity.right_vel.data;
         
-        // for display
-        target_pose2D_.x = x_ref;
-        target_pose2D_.y = y_ref;
-        target_pose2D_.theta = th_ref;
+        // for error calculate
+        nearest_pose2D_.x = ref_traj[min_dist_point_index].pose.position.x;
+        nearest_pose2D_.y = ref_traj[min_dist_point_index].pose.position.y;
+        nearest_pose2D_.theta = tf2::getYaw(ref_traj[min_dist_point_index].pose.orientation);
 
         target_pose_vec << x_ref, y_ref, th_ref;
         target_u_vec << w_r_ref, w_l_ref;
     }
 
-    void MPC_Controller::GetTargetPoint(uint32_t target_point_index, pose2D* target_pose){
-        target_point_index = ref_point_index_;
-        *target_pose = target_pose2D_;
+    pose2D MPC_Controller::GetNearestPose(){
+        return nearest_pose2D_;
     }
-
+    pose2D MPC_Controller::GetCurrentPose(){
+        return current_pose2D_;
+    }
+    
     void MPC_Controller::SetConstraintMatrix(){
         ROS_INFO("Setting Constraint Matrix");
         SetConstraintBound();
@@ -207,11 +226,8 @@ namespace mpc_controller{
         Eigen::VectorXd control_err_max = u_upper_bound_ - target_u_vec_;
         Eigen::VectorXd Control_Err_Min, Control_Err_Max;
 
-/*         std::cout << "control_err_min:\n" << control_err_min << std::endl;
-        std::cout << "control_err_max:\n" << control_err_max << std::endl;
-        
         std::cout << "control_err_min:\n" << control_err_min << std::endl;
-        std::cout << "control_err_max:\n" << control_err_max << std::endl; */
+        std::cout << "control_err_max:\n" << control_err_max << std::endl; 
 
         Control_Err_Min = KroneckerProduct(NcOnes_, control_err_min) - Control_Err_;
         Control_Err_Max = KroneckerProduct(NcOnes_, control_err_max) - Control_Err_;
@@ -238,7 +254,11 @@ namespace mpc_controller{
         std::cout << "QP_upper_bound_:\n" << QP_upper_bound_ << std::endl; */
     }
 
-
+    /**
+     * @description: 设置eigen-osqp的求解参数
+     * @param {type} 
+     * @return: 
+     */
     bool MPC_Controller::SetQPData(){
         ROS_INFO("Setting QP Data");
  
@@ -346,6 +366,11 @@ namespace mpc_controller{
         return true;
     }
     
+    /**
+     * @description: 使用eigen-osqp求解mpc问题
+     * @param {type} 
+     * @return: 求解结果的指针
+     */
     bool MPC_Controller::SolveQP(){
         ROS_INFO("Solving QP");
         if (!QP_solver_.solve())
@@ -360,13 +385,24 @@ namespace mpc_controller{
         }
     }
 
-
+    /**
+     * @description: 获取控制输出
+     * @param {type} 
+     * @return: 控制输出的指针
+     */
     void MPC_Controller::GetOutputControl(Eigen::VectorXd *output_control){
         delta_U_ = QP_solution_.head(control_dim_);
+        std::cout << "delta_U_right: \n" << delta_U_[0] << std::endl;
+        std::cout << "delta_U_left: \n" << delta_U_[1] << std::endl;
         control_err_ = control_err_ + delta_U_;
         *output_control = control_err_ + target_u_vec_;
     }
 
+    /**
+     * @description: 使用当前位置和参考路径,获取参考路径中的最近点
+     * @param: current_pose 当前位置; ref_traj 参考路径
+     * @return: 参考路径中最近点的索引
+     */
     uint32_t MPC_Controller::FindNearestPoint(const pose2D &current_pose,
                                             const std::vector<mpc_controller::TrajectoryPoint> &ref_traj){
         double x = current_pose.x;
@@ -374,7 +410,7 @@ namespace mpc_controller{
 
         double dist, min_dist;
         double x_ref, y_ref, th_ref;
-        double min_dist_tolerance = 0.001;
+        double min_dist_tolerance = 0.0001;
         uint32_t neareast_point_index;
         for (size_t i = 0; i < ref_traj.size(); i++)
         {
@@ -412,7 +448,11 @@ namespace mpc_controller{
         
 
     }
-
+    /**
+     * @description: 计算预测时域中的系统状态空间描述的状态转移矩阵
+     * @param {type} 
+     * @return: 
+     */
     void MPC_Controller::CalculatePSI(const Eigen::MatrixXd &Matrix_A, const Eigen::MatrixXd &Matrix_C, Eigen::MatrixXd &Matrix_PSI){
         ROS_INFO("Calculating PSI Matrix");
         Eigen::MatrixXd matrix_pow;
@@ -425,7 +465,11 @@ namespace mpc_controller{
         
     }
 
-
+    /**
+     * @description: 计算预测时域中的系统状态空间描述的控制矩阵
+     * @param {type} 
+     * @return: 
+     */
     void MPC_Controller::CalculateTHETA(const Eigen::MatrixXd &Matrix_A, const Eigen::MatrixXd &Matrix_B, 
                             Eigen::MatrixXd &Matrix_C, Eigen::MatrixXd &Matrix_THETA){
         ROS_INFO("Calculating Theta Matrix");
@@ -436,7 +480,7 @@ namespace mpc_controller{
                 if (j <= i) 
                 {
                     Matrix_THETA.block(state_dim_ * i, control_dim_ * j, 
-                                                state_dim_, control_dim_) = Matrix_C * (MatrixPow(Matrix_A, i-j) * Matrix_B);
+                                                state_dim_, control_dim_) = Matrix_C * MatrixPow(Matrix_A, i-j) * Matrix_B;
                 }
                 else
                 {
@@ -457,9 +501,13 @@ namespace mpc_controller{
         return matrix_pow;
         
     }
-
+    /**
+     * @description: 克罗内克积
+     * @param {type} 
+     * @return: A与B 的克罗内克积
+     */
     Eigen::MatrixXd MPC_Controller::KroneckerProduct(const Eigen::MatrixXd &A, const Eigen::MatrixXd &B){
-        ROS_INFO("Using Kronecker Product");
+        // ROS_INFO("Using Kronecker Product");
         Eigen::MatrixXd Kronecker(A.rows() * B.rows(), A.cols() * B.cols());
         Kronecker.setZero();
         for (size_t i = 0; i < A.rows(); i++)
@@ -476,7 +524,11 @@ namespace mpc_controller{
         return Kronecker;
     }
 
-
+    /**
+     * @description: 计算标准QP问题中的Hessian矩阵
+     * @param {type} 
+     * @return: 
+     */
     void MPC_Controller::CalculateHessian(Eigen::SparseMatrix<double> &Hessian){
         ROS_INFO("Calculating Hessian Matrix");
         Hessian.resize(Weight_R_.rows() + 1, Weight_R_.cols() + 1);
@@ -505,17 +557,21 @@ namespace mpc_controller{
         Hessian *= 2; /*> for QP problem form*/
     }
 
-
+    /**
+     * @description: 计算标准QP问题中的Gradient矩阵
+     * @param {type} 
+     * @return: 
+     */
     void MPC_Controller::CalculateGradient(const Eigen::MatrixXd &Matrix_E, Eigen::VectorXd &Gradient){
         ROS_INFO("Calculating Gradient Matrix");
         Gradient.resize(control_dim_ * N_c_ + 1);
-        std::cout << "Control_Err_: \n" << Control_Err_ << std::endl;
-        std::cout << "Weight_P_: \n" << Weight_P_ << std::endl;
-        std::cout << "Matrix_M_: \n" << Matrix_M_ << std::endl;
-        Eigen::MatrixXd aa = 2 * Matrix_E.transpose() * Weight_Q_ * Matrix_THETA_;
-        Eigen::MatrixXd bb = 2 * Control_Err_.transpose() * Weight_P_ * Matrix_M_;
-        std::cout << "aa: \n" << aa << std::endl;
-        std::cout << "bb: \n" << bb << std::endl;    
+        // std::cout << "Control_Err_: \n" << Control_Err_ << std::endl;
+        // std::cout << "Weight_P_: \n" << Weight_P_ << std::endl;
+        // std::cout << "Matrix_M_: \n" << Matrix_M_ << std::endl;
+        // Eigen::MatrixXd aa = 2 * Matrix_E.transpose() * Weight_Q_ * Matrix_THETA_;
+        // Eigen::MatrixXd bb = 2 * Control_Err_.transpose() * Weight_P_ * Matrix_M_;
+        // std::cout << "aa: \n" << aa << std::endl;
+        // std::cout << "bb: \n" << bb << std::endl;    
         Eigen::MatrixXd temp_matrix = 2 * Matrix_E.transpose() * Weight_Q_ * Matrix_THETA_ + 2 * Control_Err_.transpose() * Weight_P_ * Matrix_M_;    
         Eigen::Map<Eigen::VectorXd> temp_vec(temp_matrix.data(), temp_matrix.size());
         Gradient.block(0, 0, control_dim_ * N_c_, 1) = temp_vec;
@@ -573,5 +629,20 @@ namespace mpc_controller{
             delta_u_upper_bound_ = delta_u_upper_bound;
             return true;
         }
+    }
+
+    double MPC_Controller::ComputeLonErr(){
+        double lon_err = (current_pose2D_.x - nearest_pose2D_.x) * cos(nearest_pose2D_.theta) + (current_pose2D_.y - nearest_pose2D_.y) * sin(nearest_pose2D_.theta);
+        return lon_err;
+    }
+
+    double MPC_Controller::ComputeLatErr(){
+        double lat_err = (current_pose2D_.y - nearest_pose2D_.y) * cos(nearest_pose2D_.theta) - (current_pose2D_.x - nearest_pose2D_.x) * sin(nearest_pose2D_.theta);
+        return lat_err;
+    }
+
+    double MPC_Controller::ComputeYawErr(){
+        double yaw_err = current_pose2D_.theta - nearest_pose2D_.theta;
+        return yaw_err;
     }
 }

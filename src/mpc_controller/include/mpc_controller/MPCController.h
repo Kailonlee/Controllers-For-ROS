@@ -5,10 +5,8 @@
 #include<Eigen/Core>
 #include<Eigen/Sparse>
 #include<geometry_msgs/PoseStamped.h>
-#include<base_local_planner/local_planner_util.h>
 #include<memory>
 #include<OsqpEigen/OsqpEigen.h>
-#include<tf2/utils.h>
 #include<math.h>
 
 // temp message definition
@@ -74,10 +72,13 @@ namespace mpc_controller{
 
         uint32_t N_p_;//预测时域
         uint32_t N_c_;//控制时域
-        uint32_t ref_point_index_;
+        
 
         Eigen::MatrixXd Weight_Q_, Weight_R_, Weight_P_;
+        
+
         Eigen::MatrixXd Matrix_Y_, Matrix_PSI_, Matrix_THETA_;
+
         Eigen::MatrixXd Matrix_K_;
         
         Eigen::VectorXd control_err_;
@@ -110,9 +111,10 @@ namespace mpc_controller{
         Eigen::VectorXd QP_solution_;
 
         Eigen::VectorXd delta_U_, output_U_;
+
         Eigen::VectorXd target_u_vec_;
 
-        pose2D target_pose2D_;
+        pose2D current_pose2D_, nearest_pose2D_;
 
         const Eigen::MatrixXd MatrixPow(const Eigen::MatrixXd &matrix, const int& exponent);
         void CalculatePSI(const Eigen::MatrixXd &Matrix_A, const Eigen::MatrixXd &Matrix_C, Eigen::MatrixXd &Matrix_PSI);
@@ -124,6 +126,7 @@ namespace mpc_controller{
                                 Eigen::VectorXd &current_pose_vec);
         void UpdateTargetVec(const pose2D &current_pose, 
                             const std::vector<mpc_controller::TrajectoryPoint> &ref_traj,
+                            const geometry_msgs::Vector3 &body_vel,
                             Eigen::VectorXd &target_pose_vec,
                             Eigen::VectorXd &target_u_vec);
         void UpdateErrVector(const Eigen::VectorXd &current_pose_vec, 
@@ -142,6 +145,7 @@ namespace mpc_controller{
                                 const std::vector<mpc_controller::TrajectoryPoint> &ref_traj);
         double ComputeLatErr();
         double ComputeLonErr();
+        double ComputeYawErr();
 
         void SetPlan(const std::vector<mpc_controller::TrajectoryPoint>& ref_traj);
         void SetSysDynMatrix(const Eigen::MatrixXd &matrix_a, 
@@ -163,9 +167,11 @@ namespace mpc_controller{
 
 
         void UpdateSystemMatrix(const pose2D &current_pose,
+                                const geometry_msgs::Vector3 &body_vel,
                                 const std::vector<mpc_controller::TrajectoryPoint> &ref_traj);
 
-        void GetTargetPoint(uint32_t target_point_index, pose2D* target_pose);
+        pose2D GetNearestPose();
+        pose2D GetCurrentPose();
         bool SetQPData();
         void SetConstraintMatrix();
         bool SolveQP();
