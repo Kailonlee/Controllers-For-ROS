@@ -11,11 +11,8 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   std_msgs
   geometry_msgs
-  base_local_planner
-  costmap_2d
   nav_core
   nav_msgs
-  pluginlib
   sensor_msgs
   tf2
   tf2_ros
